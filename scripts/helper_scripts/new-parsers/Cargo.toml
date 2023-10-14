@@ -19,4 +19,5 @@ path = "src/xml-parser/main.rs"
 
 [dependencies]
 clap = { version = "4.4.6", features = ["derive"] }
+crossbeam = "0.8.2"
 uniprot = "0.6.0"

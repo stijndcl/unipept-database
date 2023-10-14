@@ -40,7 +40,7 @@ impl Entry {
         }
     }
 
-    pub fn digest(&mut self) -> Vec<String> {
+    pub fn digest(&self) -> Vec<String> {
         let mut result = Vec::new();
 
         let mut start: usize = 0;

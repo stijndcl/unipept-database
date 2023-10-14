@@ -56,4 +56,12 @@ fn main() {
     for entry in parser {
         writer.store(entry);
     }
+
+    // Wait for all threads to finish
+    for t in writer.threads {
+        if let Err(e) = t.join() {
+            eprintln!("unable to join threads: {:?}", e);
+            std::process::exit(1);
+        }
+    }
 }
