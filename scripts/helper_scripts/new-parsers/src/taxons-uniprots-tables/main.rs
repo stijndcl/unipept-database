@@ -57,6 +57,8 @@ fn main() {
         writer.store(entry);
     }
 
+    writer.close();
+
     // Wait for all threads to finish
     for t in writer.threads {
         if let Err(e) = t.join() {

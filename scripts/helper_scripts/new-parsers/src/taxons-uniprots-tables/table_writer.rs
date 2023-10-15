@@ -19,11 +19,11 @@ type Writer = BufWriter<File>;
 pub struct TableWriter {
     taxons: TaxonList,
     wrong_ids: HashSet<i32>,
-    peptides: Sender<(i64, Entry)>,
+    peptides: Option<Sender<(i64, Entry)>>,
     uniprot_entries: Writer,
-    go_cross_references: Sender<EntryData>,
-    ec_cross_references: Sender<EntryData>,
-    ip_cross_references: Sender<EntryData>,
+    go_cross_references: Option<Sender<EntryData>>,
+    ec_cross_references: Option<Sender<EntryData>>,
+    ip_cross_references: Option<Sender<EntryData>>,
 
     peptide_count: i64,
     uniprot_count: i64,
@@ -104,11 +104,11 @@ impl TableWriter {
         TableWriter {
             taxons: TaxonList::from_file(&cli.taxons),
             wrong_ids: HashSet::new(),
-            peptides: peptide_sender,
+            peptides: Some(peptide_sender),
             uniprot_entries: open_write(&cli.uniprot_entries),
-            go_cross_references: go_ref_sender,
-            ec_cross_references: ec_ref_sender,
-            ip_cross_references: ip_ref_sender,
+            go_cross_references: Some(go_ref_sender),
+            ec_cross_references: Some(ec_ref_sender),
+            ip_cross_references: Some(ip_ref_sender),
 
             peptide_count: 0,
             uniprot_count: 0,
@@ -125,18 +125,33 @@ impl TableWriter {
         if id == -1 { return; }
 
         for r in &entry.go_references {
-            self.go_cross_references.send((id, r.clone())).expect("unable to send message to GO worker thread");
+            if let Some(go) = &self.go_cross_references {
+                go.send((id, r.clone())).expect("unable to send message to GO worker thread");
+            }
         }
 
         for r in &entry.ec_references {
-            self.ec_cross_references.send((id, r.clone())).expect("unable to send message to EC worker thread");
+            if let Some(ec) = &self.ec_cross_references {
+                ec.send((id, r.clone())).expect("unable to send message to EC worker thread");
+            }
         }
 
         for r in &entry.ip_references {
-            self.ip_cross_references.send((id, r.clone())).expect("unable to send message to InterPro worker thread");
+            if let Some(ip) = &self.ip_cross_references {
+                ip.send((id, r.clone())).expect("unable to send message to InterPro worker thread");
+            }
         }
 
-        self.peptides.send((id, entry)).expect("unable to send message to peptide worker thread");
+        if let Some(pept) = &self.peptides {
+            pept.send((id, entry)).expect("unable to send message to peptide worker thread");
+        }
+    }
+
+    pub fn close(&mut self) {
+        self.peptides = None;
+        self.ip_cross_references = None;
+        self.ec_cross_references = None;
+        self.go_cross_references = None;
     }
 
     // Store the entry info and return the generated id
