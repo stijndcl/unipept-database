@@ -496,12 +496,7 @@ create_most_tables() {
 
 	mkdir -p "$OUTPUT_DIR" "$INTDIR"
 
-	if [ $VERBOSE = "true" ]
-	then
-	  $VERBOSE_FLAG="--verbose"
-  fi
-
-	cat - | java -Xms"$JAVA_MEM" -Xmx"$JAVA_MEM" -jar "$CURRENT_LOCATION/helper_scripts/TaxonsUniprots2Tables.jar" \
+	cat - | $CURRENT_LOCATION/helper_scripts/taxons-uniprots-tables \
 		--peptide-min "$PEPTIDE_MIN_LENGTH" \
 		--peptide-max "$PEPTIDE_MAX_LENGTH" \
 		--taxons "$(guz "$OUTPUT_DIR/taxons.tsv.gz")" \
@@ -509,8 +504,7 @@ create_most_tables() {
 		--uniprot-entries "$(gz "$OUTPUT_DIR/uniprot_entries.tsv.gz")" \
 		--ec "$(gz "$OUTPUT_DIR/ec_cross_references.tsv.gz")" \
 		--go "$(gz "$OUTPUT_DIR/go_cross_references.tsv.gz")" \
-		--interpro "$(gz "$OUTPUT_DIR/interpro_cross_references.tsv.gz")" \
-		$VERBOSE_FLAG
+		--interpro "$(gz "$OUTPUT_DIR/interpro_cross_references.tsv.gz")"
 
 	log "Finished calculation of most tables with status $?"
 }
