@@ -147,6 +147,8 @@ impl TableWriter {
         }
     }
 
+    /// Close channel senders (which in term causes threads to finish)
+    /// This function must be called after all data has been sent
     pub fn close(&mut self) {
         self.peptides = None;
         self.ip_cross_references = None;
