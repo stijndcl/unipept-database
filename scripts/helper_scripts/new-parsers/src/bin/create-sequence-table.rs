@@ -49,8 +49,9 @@ struct Cli {
 
 /// Split a line into the first 12 characters (parsed as an id), and the rest
 fn split_line(line: String) -> (u64, String) {
-    let (id, mut data) = line.split_at(ID_PADDING);
-    data = data.trim();
+    let line_ref = line.as_str();
+    let id = &line_ref[..ID_PADDING];
+    let data = &line_ref[ID_PADDING + 1..];
 
     match id.parse::<u64>() {
         Ok(v) => (v, data.to_string()),
