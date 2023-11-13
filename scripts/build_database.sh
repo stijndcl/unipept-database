@@ -577,37 +577,34 @@ calculate_original_lcas() {
 	log "Finished the calculation of original LCA's (after substituting AA's by ID's) with status $?."
 }
 
-
 substitute_equalized_aas() {
 	have "$INTDIR/peptides.tsv.gz" "$INTDIR/sequences.tsv.gz" || return
-	log "Started the substitution of equalized AA's by ID's for the peptides."
+	log "Started the substitution of AA's by ID's for the peptides."
 	zcat "$INTDIR/peptides.tsv.gz" \
 		| LC_ALL=C $CMD_SORT -k 2b,2 \
-		| join -t '	' -o '1.1,2.1,1.3,1.4,1.5' -1 2 -2 2 - "$(guz "$INTDIR/sequences.tsv.gz")" \
-		| $CMD_GZIP - > "$INTDIR/peptides_by_equalized.tsv.gz"
-	log "Finished the substitution of equalized AA's by ID's for the peptides with status $?."
+		| join -t '	' -o '1.1,2.1,1.3,1.4,1.5' -1 2 -2 2 - "$(guz "$INTDIR/sequences.tsv.gz")"
 }
-
-
-calculate_equalized_fas() {
-	have "$INTDIR/peptides_by_equalized.tsv.gz" || return
-	log "Started the calculation of equalized FA's."
-	mkfifo "peptides_eq"
-	zcat "$INTDIR/peptides_by_equalized.tsv.gz" | cut -f2,5 > "peptides_eq" &
-	node  "$CURRENT_LOCATION/helper_scripts/FunctionalAnalysisPeptides.js" "peptides_eq" "$(gz "$INTDIR/FAs_equalized.tsv.gz")"
-	rm "peptides_eq"
-	log "Finished the calculation of equalized FA's with status $?."
-}
-
 
 substitute_original_aas() {
-	have "$INTDIR/peptides_by_equalized.tsv.gz" "$INTDIR/sequences.tsv.gz" || return
-	log "Started the substitution of original AA's by ID's for the peptides."
-	zcat "$INTDIR/peptides_by_equalized.tsv.gz" \
+	cat - \
 		| LC_ALL=C $CMD_SORT -k 3b,3 \
 		| join -t '	' -o '1.1,1.2,2.1,1.4,1.5' -1 3 -2 2 - "$(guz "$INTDIR/sequences.tsv.gz")" \
 		| $CMD_GZIP - > "$INTDIR/peptides_by_original.tsv.gz"
-	log "Finished the substitution of equalized AA's by ID's for the peptides with status $?."
+	log "Finished the substitution of AA's by ID's for the peptides with status $?."
+}
+
+substitute_aas() {
+  substitute_equalized_aas | substitute_original_aas
+}
+
+calculate_equalized_fas() {
+	have "$INTDIR/peptides_by_original.tsv.gz" || return
+	log "Started the calculation of equalized FA's."
+	mkfifo "peptides_eq"
+	zcat "$INTDIR/peptides_by_original.tsv.gz" | cut -f2,5 > "peptides_eq" &
+	node  "$CURRENT_LOCATION/helper_scripts/FunctionalAnalysisPeptides.js" "peptides_eq" "$(gz "$INTDIR/FAs_equalized.tsv.gz")"
+	rm "peptides_eq"
+	log "Finished the calculation of equalized FA's with status $?."
 }
 
 calculate_original_fas() {
@@ -771,9 +768,8 @@ database)
 	wait $pid2
 	rm "$INTDIR/aa_sequence_taxon_equalized.tsv.gz"
 	rm "$INTDIR/aa_sequence_taxon_original.tsv.gz"
-	substitute_equalized_aas
+	substitute_aas
 	rm "$INTDIR/peptides.tsv.gz"
-	substitute_original_aas
 	reportProgress "-1" "Calculating functional annotations." 7
 	calculate_equalized_fas &
 	pid1=$!
@@ -838,9 +834,8 @@ tryptic-index)
 		number_sequences
 		calculate_equalized_lcas
 		calculate_original_lcas
-		substitute_equalized_aas
+		substitute_aas
 		calculate_equalized_fas
-		substitute_original_aas
 		calculate_original_fas
 		create_sequence_table
 	fi
