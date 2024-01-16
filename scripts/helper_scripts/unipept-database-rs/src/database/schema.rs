@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::process::Stdio;
 
-use anyhow::{anyhow, Context, Error, Result};
+use anyhow::{Context, Result};
 
 use crate::database::{DatabaseContext, setup_psql};
 use crate::utils::subprocess::{cat_file_stdout, handle_process_status};

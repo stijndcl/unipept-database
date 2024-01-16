@@ -15,7 +15,7 @@ pub fn cat_file_stdout(fp: &PathBuf) -> Command {
 /// Output is written to stdout to be piped to other Commands
 pub fn decompress_file_stdout(fp: &PathBuf) -> Command {
     let mut cmd = Command::new("lz4");
-    cmd.args(["-d", "-c"]);
+    cmd.args(["-d", "-c", format!("{}", fp.display()).as_str()]);
     cmd.stdout(Stdio::piped());
 
     cmd
