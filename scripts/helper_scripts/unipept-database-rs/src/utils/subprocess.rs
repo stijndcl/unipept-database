@@ -21,7 +21,8 @@ pub fn decompress_file_stdout(fp: &PathBuf) -> Command {
     cmd
 }
 
-pub fn handle_process_status(mut process: Child, name: &str) -> Result<()> {
+/// Wait for a process to finish and handle its exit status
+pub fn handle_process_status(mut process: Child, name: String) -> Result<()> {
     match process.wait() {
         Ok(status) => {
             if status.success() {

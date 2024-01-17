@@ -9,9 +9,8 @@ use crate::database::{DatabaseContext, execute_statement};
 use crate::utils::subprocess::{decompress_file_stdout, handle_process_status};
 
 /// Load all *.tsv.lz4 files in a given directory into the database in parallel
-pub fn parallel_load(ctx: DatabaseContext, data_dir: &PathBuf) -> Result<()> {
+pub fn parallel_load(ctx: Arc<DatabaseContext>, data_dir: &PathBuf) -> Result<()> {
     let mut handles = vec![];
-    let ctx_arc = Arc::new(ctx);
 
     for entry in fs::read_dir(data_dir).context("Unable to read data directory")? {
         let entry = entry.context("Error reading entry from data directory")?;
@@ -30,7 +29,7 @@ pub fn parallel_load(ctx: DatabaseContext, data_dir: &PathBuf) -> Result<()> {
         let Some(table_name) = base_name.strip_suffix(".tsv.lz4") else { continue; };
 
         let table_name = table_name.to_string();
-        let arc_ctx = Arc::clone(&ctx_arc);
+        let arc_ctx = Arc::clone(&ctx);
 
         // Load the table in a subprocess
         let handle = thread::spawn(move || {
@@ -42,7 +41,7 @@ pub fn parallel_load(ctx: DatabaseContext, data_dir: &PathBuf) -> Result<()> {
     }
 
     for handle in handles {
-        handle.join().expect("Error joining thread");
+        handle.join().expect("Error joining threads");
     }
 
     Ok(())
@@ -57,5 +56,5 @@ fn load(ctx: Arc<DatabaseContext>, fp: &PathBuf, table: String) -> Result<()> {
     cmd.stdin(lz4_stdout).stdout(Stdio::inherit());
 
     let process = cmd.spawn().context("Error spawning database import subprocess")?;
-    handle_process_status(process, "Database import")
+    handle_process_status(process, format!("Database import for table {table}"))
 }
