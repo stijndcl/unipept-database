@@ -59,8 +59,6 @@ fn main() -> Result<()> {
             }
         }
 
-        eprintln!("Prefix: {prefix}, map size: {}", sequence_to_id.len());
-
         if !current_peptide.is_empty() {
             let data: Vec<&str> = current_peptide.splitn(4, '\t').collect();
             let eq_id = sequence_to_id.get(data[1]).with_context(|| format!("Missing sequence {}", data[1]))?;
