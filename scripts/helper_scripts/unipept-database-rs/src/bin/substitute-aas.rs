@@ -63,7 +63,7 @@ fn main() -> Result<()> {
             let data: Vec<&str> = current_peptide.splitn(4, '\t').collect();
             let eq_id = sequence_to_id.get(data[1]).with_context(|| format!("Missing sequence {}", data[1]))?;
             let orig_id = sequence_to_id.get(data[2]).with_context(|| format!("Missing sequence {}", data[2]))?;
-            println!("{}\t{}\t{}\t{}\t", data[0], eq_id, orig_id, data[3]);
+            println!("{}\t{}\t{}\t{}", data[0], eq_id, orig_id, data[3]);
 
             current_peptide = String::new();
             current_eq = String::new();
@@ -84,7 +84,7 @@ fn main() -> Result<()> {
                 let eq_id = sequence_to_id.get(data[1]).with_context(|| format!("Missing sequence {}", data[1]))?;
                 let orig_id = sequence_to_id.get(data[2]).with_context(|| format!("Missing sequence {}", data[2]))?;
 
-                println!("{}\t{}\t{}\t{}\t", data[0], eq_id, orig_id, data[3]);
+                println!("{}\t{}\t{}\t{}", data[0], eq_id, orig_id, data[3]);
             } else {
                 current_eq = data[1].to_string();
                 current_og = data[2].to_string();
