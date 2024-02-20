@@ -6,6 +6,9 @@ use std::io::BufRead;
 use std::path::PathBuf;
 use unipept_database::utils::files::open_read;
 
+const GROUP_START_CHARACTER: char = 'I';
+const GROUP_END_CHARACTER: char = 'L';
+
 fn main() -> Result<()> {
     let args = Cli::parse();
     let peptides_infile = open_read(&args.peptides).context("Error opening peptides input file")?;
@@ -24,8 +27,8 @@ fn main() -> Result<()> {
     let mut current_og = String::new();
 
     for prefix in 'A'..='Z' {
-        // Group everything between I and L together
-        if prefix > 'I' && prefix <= 'L' {
+        // Group everything between I and L together to deal with equalized sequences
+        if prefix > GROUP_START_CHARACTER && prefix <= GROUP_END_CHARACTER {
             continue;
         }
 
@@ -126,9 +129,44 @@ fn sequence_starts_with(seq: &str, character: char) -> bool {
     let first = seq.chars().next().unwrap();
 
     // Special case: treat I-L as one
-    if character == 'I' {
-        return ('I'..='L').contains(&first);
+    if character == GROUP_START_CHARACTER {
+        return (GROUP_START_CHARACTER..=GROUP_END_CHARACTER).contains(&first);
     }
 
     first == character
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sequence_starts_with() {
+        assert!(sequence_starts_with("AAAAAAAAAAAAAAAGAGAGAK", 'A'));
+    }
+
+    #[test]
+    fn test_sequence_starts_with_false() {
+        assert!(!sequence_starts_with("AAAAAAAAAAAAAAAGAGAGAK", 'B'));
+    }
+
+    #[test]
+    fn test_sequence_starts_with_group() {
+        assert!(sequence_starts_with(
+            "IAAAAAAAAAAAAAAGAGAGAK",
+            GROUP_START_CHARACTER
+        ));
+        assert!(sequence_starts_with(
+            "JAAAAAAAAAAAAAAGAGAGAK",
+            GROUP_START_CHARACTER
+        ));
+        assert!(sequence_starts_with(
+            "KAAAAAAAAAAAAAAGAGAGAK",
+            GROUP_START_CHARACTER
+        ));
+        assert!(sequence_starts_with(
+            "LAAAAAAAAAAAAAAGAGAGAK",
+            GROUP_START_CHARACTER
+        ));
+    }
 }
