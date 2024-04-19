@@ -348,14 +348,35 @@ download_taxdmp() {
     TAXON_URL="$TAXON_FALLBACK_URL"
   fi
 
-  curl -L --create-dirs --silent --output "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/taxdmp.zip" "$TAXON_URL"
+  wget -q -O "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/taxdmp.zip" "$TAXON_URL"
+}
+
+download_ec_numbers() {
+  wget -q -O "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/enzclass.txt" "$EC_CLASS_URL"
+  wget -q -O "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/enzyme.dat" "$EC_EC_NUMBER_URL"
+}
+
+download_go_terms() {
+  wget -q -O "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/go-basic.obo" "$GO_TERM_URL"
+}
+
+download_interpro_entries() {
+  wget -q -O "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/entry.list" "$INTERPRO_URL"
+}
+
+download_all_sources() {
+  download_taxdmp
+  download_ec_numbers
+  download_go_terms
+  download_interpro_entries
 }
 
 create_taxon_tables() {
+  have "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/taxdmp.zip" || return
+
 	log "Started creating the taxon tables."
 	reportProgress -1 "Creating taxon tables." 1
 
-	download_taxdmp
 	unzip "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/taxdmp.zip" "names.dmp" "nodes.dmp" -d "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT"
 	rm "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/taxdmp.zip"
 
@@ -682,12 +703,14 @@ create_sequence_table() {
 	log "Finished the creation of the sequences table."
 }
 
-fetch_ec_numbers() {
+process_ec_numbers() {
+  have "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/enzclass.txt" "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/enzyme.dat" || return
+
 	log "Started creating EC numbers."
 	mkdir -p "$OUTPUT_DIR"
 	{
-		curl -s "$EC_CLASS_URL" | grep '^[1-9]' | sed 's/\. *\([-0-9]\)/.\1/g' | sed 's/  */\t/' | sed 's/\.*$//'
-		curl -s "$EC_NUMBER_URL" | grep -E '^ID|^DE' | gawk '
+		cat "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/enzclass.txt" | grep '^[1-9]' | sed 's/\. *\([-0-9]\)/.\1/g' | sed 's/  */\t/' | sed 's/\.*$//'
+		cat "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/enzyme.dat" | grep -E '^ID|^DE' | gawk '
 			BEGIN { FS="   "
 			        OFS="\t" }
 			/^ID/ { if(id != "") { print id, name }
@@ -702,10 +725,12 @@ fetch_ec_numbers() {
 	log "Finished creating EC numbers."
 }
 
-fetch_go_terms() {
+process_go_terms() {
+  have "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/go-basic.obo" || return
+
 	log "Started creating GO terms."
 	mkdir -p "$OUTPUT_DIR"
-	curl -Ls "$GO_TERM_URL" | gawk '
+	cat "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/go-basic.obo" | gawk '
 		BEGIN { OFS = "	"; id = 1 }
 		/^\[.*\]$/ { # start of a record
 			type = $0
@@ -734,10 +759,12 @@ fetch_go_terms() {
 	log "Finished creating GO terms."
 }
 
-fetch_interpro_entries() {
+process_interpro_entries() {
+  have "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/entry.list" || return
+
 	log "Started creating InterPro Entries."
 	mkdir -p "$OUTPUT_DIR"
-	curl -s "$INTERPRO_URL" | grep '^IPR' | cat -n | sed 's/^ *//' | $CMD_LZ4 - > "$OUTPUT_DIR/interpro_entries.tsv.lz4"
+	cat "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/entry.list" | grep '^IPR' | cat -n | sed 's/^ *//' | $CMD_LZ4 - > "$OUTPUT_DIR/interpro_entries.tsv.lz4"
 	log "Finished creating InterPro Entries."
 }
 
@@ -786,6 +813,7 @@ create_tryptic_index() {
 
 case "$BUILD_TYPE" in
 database)
+  download_all_sources
 	create_taxon_tables
 	download_and_convert_all_sources
 	create_tables_and_filter
@@ -814,12 +842,12 @@ database)
 	rm "$INTDIR/peptides_by_equalized.tsv.lz4"
 	# Use the original sort as the result
 	mv "$INTDIR/peptides_by_original.tsv.lz4" "$OUTPUT_DIR/peptides.tsv.lz4"
-	reportProgress "-1" "Fetching EC numbers." 10
-	fetch_ec_numbers
-	reportProgress "-1" "Fetching GO terms." 11
-	fetch_go_terms
-	reportProgress "-1" "Fetching InterPro entries." 12
-	fetch_interpro_entries
+	reportProgress "-1" "Processing EC numbers." 10
+	process_ec_numbers
+	reportProgress "-1" "Processing GO terms." 11
+	process_go_terms
+	reportProgress "-1" "Processing InterPro entries." 12
+	process_interpro_entries
 	reportProgress "-1" "Computing database indices" 13
 	ENTRIES=$($CMD_LZ4CAT "$OUTPUT_DIR/uniprot_entries.tsv.lz4" | wc -l)
 	echo "Database contains: ##$ENTRIES##"
@@ -828,15 +856,20 @@ static-database)
 	if ! have "$TABDIR/taxons.tsv.lz4"; then
 		create_taxon_tables
 	fi
-	fetch_ec_numbers
-	fetch_go_terms
-	fetch_interpro_entries
+
+	download_ec_numbers
+	download_go_terms
+	download_interpro_entries
+	process_ec_numbers
+	process_go_terms
+	process_interpro_entries
 	;;
 kmer-index)
 	checkdep pv
 	checkdep umgap "umgap crate (for umgap buildindex)"
 
 	if ! have "$OUTPUT_DIR/taxons.tsv.lz4"; then
+	  download_taxdmp
 		create_taxon_tables
 	fi
 	if ! have "$OUTPUT_DIR/uniprot_entries.tsv.lz4"; then
@@ -850,6 +883,7 @@ tryptic-index)
 	checkdep umgap "umgap crate (for umgap buildindex)"
 
 	if ! have "$TABDIR/taxons.tsv.lz4"; then
+	  download_taxdmp
 		create_taxon_tables
 	fi
 	if ! have "$TABDIR/sequences.tsv.lz4"; then
