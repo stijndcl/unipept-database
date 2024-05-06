@@ -353,7 +353,7 @@ download_taxdmp() {
 
 download_ec_numbers() {
   wget -q -O "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/enzclass.txt" "$EC_CLASS_URL"
-  wget -q -O "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/enzyme.dat" "$EC_EC_NUMBER_URL"
+  wget -q -O "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/enzyme.dat" "$EC_NUMBER_URL"
 }
 
 download_go_terms() {
@@ -854,6 +854,7 @@ database)
 	;;
 static-database)
 	if ! have "$TABDIR/taxons.tsv.lz4"; then
+	  download_taxdmp
 		create_taxon_tables
 	fi
 
