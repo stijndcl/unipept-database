@@ -364,11 +364,16 @@ download_interpro_entries() {
   wget -q -O "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/entry.list" "$INTERPRO_URL"
 }
 
+download_uniprot_datasets() {
+
+}
+
 download_all_sources() {
   download_taxdmp
   download_ec_numbers
   download_go_terms
   download_interpro_entries
+  download_uniprot_datasets
 }
 
 create_taxon_tables() {
@@ -417,7 +422,7 @@ url_points_to_xml() {
   fi
 }
 
-download_and_convert_all_sources() {
+convert_all_sources() {
   IDX=0
 
   OLDIFS="$IFS"
@@ -815,7 +820,7 @@ case "$BUILD_TYPE" in
 database)
   download_all_sources
 	create_taxon_tables
-	download_and_convert_all_sources
+	convert_all_sources
 	create_tables_and_filter
 	number_sequences
   substitute_aas
@@ -874,7 +879,8 @@ kmer-index)
 		create_taxon_tables
 	fi
 	if ! have "$OUTPUT_DIR/uniprot_entries.tsv.lz4"; then
-		download_and_convert_all_sources
+	  download_uniprot_datasets
+		convert_all_sources
 		create_tables_and_filter
 	fi
 	create_kmer_index
@@ -888,7 +894,8 @@ tryptic-index)
 		create_taxon_tables
 	fi
 	if ! have "$TABDIR/sequences.tsv.lz4"; then
-		download_and_convert_all_sources
+	  download_uniprot_datasets
+		convert_all_sources
 		create_tables_and_filter
 		number_sequences
 		substitute_aas
