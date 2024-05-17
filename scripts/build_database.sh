@@ -13,6 +13,7 @@ UNIPEPT_TEMP_CONSTANT="unipept_temp"
 # Default values for the optional parameters to this script.
 TEMP_DIR="/tmp"
 INDEX_DIR="/tmp/unipept_index"
+DATASET_DIR="/tmp/unipept_datasets"
 TAXA="1"
 VERBOSE="false"
 SORT_MEMORY="2g"
@@ -78,6 +79,7 @@ Dependencies:
   * uuidgen
   * parallel
   * lz4
+  * wget
 END
 }
 
@@ -256,6 +258,7 @@ checkdep uuidgen
 checkdep pv
 checkdep pigz
 checkdep lz4
+checkdep wget
 
 ### Default configuration for this script
 PEPTIDE_MIN_LENGTH=5 # What is the minimum length (inclusive) for tryptic peptides?"
@@ -274,6 +277,13 @@ EC_CLASS_URL="https://ftp.expasy.org/databases/enzyme/enzclass.txt"
 EC_NUMBER_URL="https://ftp.expasy.org/databases/enzyme/enzyme.dat"
 GO_TERM_URL="http://geneontology.org/ontology/go-basic.obo"
 INTERPRO_URL="http://ftp.ebi.ac.uk/pub/databases/interpro/current_release/entry.list"
+
+# Variables to facilitate wget auto re-starting
+TAXON_NAME=$(basename "$TAXON_FALLBACK_URL")
+EC_CLASS_NAME="$(basename "$EC_CLASS_URL")"
+EC_NUMBER_NAME="$(basename "$EC_NUMBER_URL")"
+GO_TERM_NAME="$(basename "$GO_TERM_URL")"
+INTERPRO_NAME="$(basename "$INTERPRO_URL")"
 
 ### Utility functions required for the database construction process.
 
@@ -337,8 +347,10 @@ have() {
 download_file() {
   URL="$1"
   DESTINATION="$2"
-  echo "Downloading $(basename "$DESTINATION")"
-  curl -L --continue-at - --create-dirs "$URL" --silent -o "$DESTINATION"
+  mkdir -p "$DESTINATION"
+
+  log "Downloading $(basename "$URL")"
+  wget -qN -P "$DESTINATION" "$URL"
 }
 
 ### All the different database construction steps.
@@ -360,20 +372,22 @@ download_taxdmp() {
     TAXON_URL="$TAXON_FALLBACK_URL"
   fi
 
-  download_file "$TAXON_URL" "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/taxdmp.zip"
+  TAXON_NAME="$(basename "$TAXON_URL")"
+
+  download_file "$TAXON_URL" "$DATASET_DIR/"
 }
 
 download_ec_numbers() {
-  download_file "$EC_CLASS_URL" "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/enzclass.txt"
-  download_file "$EC_NUMBER_URL" "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/enzyme.dat"
+  download_file "$EC_CLASS_URL" "$DATASET_DIR/"
+  download_file "$EC_NUMBER_URL" "$DATASET_DIR/"
 }
 
 download_go_terms() {
-  download_file "$GO_TERM_URL" "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/go-basic.obo"
+  download_file "$GO_TERM_URL" "$DATASET_DIR/"
 }
 
 download_interpro_entries() {
-  download_file "$INTERPRO_URL" "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/entry.list"
+  download_file "$INTERPRO_URL" "$DATASET_DIR/"
 }
 
 download_uniprot_datasets() {
@@ -393,10 +407,10 @@ download_uniprot_datasets() {
     # If we are using the REST-API, always re-build the database
     if [[ $DB_SOURCE =~ "rest" ]]
     then
-      rm -f "$INDEX_DIR/$DB_TYPE.gz"
+      rm -f "$DATASET_DIR/$DB_TYPE.gz"
 
       reportProgress -1 "Downloading database index for $DB_TYPE." 3
-      download_file "$DB_SOURCE" "$INDEX_DIR/$DB_TYPE.gz"
+      curl -L --create-dirs "$DB_SOURCE" --silent -o "$DATASET_DIR/$DB_TYPE.gz"
     else
       CURRENT_ETAG=$(curl --head --silent "$DB_SOURCE" | grep "ETag" | cut -d " " -f2 | tr -d "\"" | tr -d "\r")
       STORED_ETAG="$($CURRENT_LOCATION/helper_scripts/datasets get downloaded "$DB_TYPE" )"
@@ -410,12 +424,12 @@ download_uniprot_datasets() {
         $CURRENT_LOCATION/helper_scripts/datasets delete downloaded "$DB_TYPE"
 	      $CURRENT_LOCATION/helper_scripts/datasets delete processed "$DB_TYPE"
 
-        rm -f "$INDEX_DIR/$DB_TYPE.gz"
+        rm -f "$DATASET_DIR/$DB_TYPE.gz"
         reportProgress 0 "Downloading dataset for $DB_TYPE." 2
         SIZE="$(curl -I "$DB_SOURCE" -s | grep -i content-length | tr -cd '[0-9]')"
 
         # Download dataset
-        curl -L --create-dirs "$DB_SOURCE" --silent | pv -i 5 -n -s "$SIZE" 2> >(reportProgress - "Downloading database index for $DB_TYPE." 3 >&2) > "$INDEX_DIR/$DB_TYPE.gz"
+        curl -L --create-dirs "$DB_SOURCE" --silent | pv -i 5 -n -s "$SIZE" 2> >(reportProgress - "Downloading database index for $DB_TYPE." 3 >&2) > "$DATASET_DIR/$DB_TYPE.gz"
 
         # After download is complete, store ETag if there is one
         if [[ -n "$CURRENT_ETAG" ]]
@@ -439,13 +453,13 @@ download_all_sources() {
 }
 
 create_taxon_tables() {
-  have "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/taxdmp.zip" || return
+  have "$DATASET_DIR/$TAXON_NAME" || return
 
 	log "Started creating the taxon tables."
 	reportProgress -1 "Creating taxon tables." 1
 
-	unzip "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/taxdmp.zip" "names.dmp" "nodes.dmp" -d "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT"
-	rm "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/taxdmp.zip"
+	unzip "$DATASET_DIR/$TAXON_NAME" "names.dmp" "nodes.dmp" -d "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT"
+	rm "$DATASET_DIR/$TAXON_NAME"
 
 	sed -i'' -e 's/subcohort/no rank/' -e 's/cohort/no rank/' \
 		-e 's/subsection/no rank/' -e 's/section/no rank/' \
@@ -504,7 +518,7 @@ convert_all_sources() {
     echo "Producing index for $DB_TYPE."
 
     # Where should we store the index of this converted database.
-    DATASET="$INDEX_DIR/$DB_TYPE.gz"
+    DATASET="$DATASET_DIR/$DB_TYPE.gz"
     DB_INDEX_OUTPUT="$INDEX_DIR/$DB_TYPE"
 
     echo "$DB_INDEX_OUTPUT"
@@ -541,7 +555,7 @@ convert_all_sources() {
 
       SIZE="$(curl -I "$DB_SOURCE" -s | grep -i content-length | tr -cd '[0-9]')"
 
-      pigz -dc "$INDEX_DIR/$DB_TYPE.gz" | $CURRENT_LOCATION/helper_scripts/$PARSER -t "$DB_TYPE" | $CURRENT_LOCATION/helper_scripts/write-to-chunk --output-dir "$DB_INDEX_OUTPUT"
+      pigz -dc "$DATASET" | $CURRENT_LOCATION/helper_scripts/$PARSER -t "$DB_TYPE" | $CURRENT_LOCATION/helper_scripts/write-to-chunk --output-dir "$DB_INDEX_OUTPUT"
 
       # Now, compress the different chunks
       CHUNKS=$(find "$DB_INDEX_OUTPUT" -name "*.chunk")
@@ -559,7 +573,7 @@ convert_all_sources() {
       done
 
       $CURRENT_LOCATION/helper_scripts/datasets set processed "$DB_TYPE" "$CURRENT_ETAG"
-      rm "$INDEX_DIR/$DB_TYPE.gz"
+      rm "$DATASET"
 
       echo "Index for $DB_TYPE has been produced."
     fi
@@ -735,13 +749,13 @@ create_sequence_table() {
 }
 
 process_ec_numbers() {
-  have "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/enzclass.txt" "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/enzyme.dat" || return
+  have "$DATASET_DIR/$EC_CLASS_NAME" "$DATASET_DIR/$EC_NUMBER_NAME" || return
 
 	log "Started creating EC numbers."
 	mkdir -p "$OUTPUT_DIR"
 	{
-		cat "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/enzclass.txt" | grep '^[1-9]' | sed 's/\. *\([-0-9]\)/.\1/g' | sed 's/  */\t/' | sed 's/\.*$//'
-		cat "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/enzyme.dat" | grep -E '^ID|^DE' | gawk '
+		cat "$DATASET_DIR/$EC_CLASS_NAME" | grep '^[1-9]' | sed 's/\. *\([-0-9]\)/.\1/g' | sed 's/  */\t/' | sed 's/\.*$//'
+		cat "$DATASET_DIR/$EC_NUMBER_NAME" | grep -E '^ID|^DE' | gawk '
 			BEGIN { FS="   "
 			        OFS="\t" }
 			/^ID/ { if(id != "") { print id, name }
@@ -757,11 +771,11 @@ process_ec_numbers() {
 }
 
 process_go_terms() {
-  have "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/go-basic.obo" || return
+  have "$DATASET_DIR/$GO_TERM_NAME" || return
 
 	log "Started creating GO terms."
 	mkdir -p "$OUTPUT_DIR"
-	cat "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/go-basic.obo" | gawk '
+	cat "$DATASET_DIR/$GO_TERM_NAME" | gawk '
 		BEGIN { OFS = "	"; id = 1 }
 		/^\[.*\]$/ { # start of a record
 			type = $0
@@ -791,11 +805,11 @@ process_go_terms() {
 }
 
 process_interpro_entries() {
-  have "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/entry.list" || return
+  have "$DATASET_DIR/$INTERPRO_NAME" || return
 
 	log "Started creating InterPro Entries."
 	mkdir -p "$OUTPUT_DIR"
-	cat "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/entry.list" | grep '^IPR' | cat -n | sed 's/^ *//' | $CMD_LZ4 - > "$OUTPUT_DIR/interpro_entries.tsv.lz4"
+	cat "$DATASET_DIR/$INTERPRO_NAME" | grep '^IPR' | cat -n | sed 's/^ *//' | $CMD_LZ4 - > "$OUTPUT_DIR/interpro_entries.tsv.lz4"
 	log "Finished creating InterPro Entries."
 }
 
