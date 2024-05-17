@@ -14,7 +14,7 @@ license = "MIT"
 anyhow = "1.0.75"
 bit-vec = "0.6.3"
 chrono = "0.4.31"
-clap = { version = "4.4.6", features = ["derive"] }
+clap = { version = "4.4.6", features = ["derive", "env"] }
 crossbeam-channel = "0.5.11"
 regex = "1.10.2"
 smartstring = { version = "1.0" }
@@ -23,3 +23,5 @@ strum_macros = "0.25.3"
 uniprot = "0.7.0"
 lazy_static = "1.4.0"
 num_cpus = "1.16.0"
+serde = { version = "1.0.202", features = ["derive"] }
+serde_json = "1.0.117"
