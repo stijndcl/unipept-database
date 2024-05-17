@@ -14,9 +14,13 @@ const FILENAME: &str = "datasets-meta.json";
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let filepath = cli.index_dir.join(FILENAME);
-    let meta = load_metadata(&filepath)?;
+    let mut meta = load_metadata(&filepath)?;
 
     match cli.cmd {
+        Commands::Delete(args) => {
+            cmd_delete(&mut meta, args);
+            meta.write(filepath).context("Error deleting E-Tag")?;
+        }
         Commands::Get(args) => {
             let etag = cmd_get(&meta, args);
             match etag {
@@ -25,7 +29,8 @@ fn main() -> Result<()> {
             }
         }
         Commands::Set(args) => {
-            cmd_set(meta, args).write(filepath).context("Error storing E-Tag")?;
+            cmd_set(&mut meta, args);
+            meta.write(filepath).context("Error storing E-Tag")?;
         }
         Commands::ShouldReprocess(args) => {
             let reprocess = cmd_should_reprocess(meta, args);
@@ -43,6 +48,11 @@ struct Cli {
 
     #[clap(long, env = "INDEX_DIR")]
     index_dir: PathBuf,
+}
+
+#[derive(Args, Clone, Debug)]
+struct DeleteArgs {
+    key: String
 }
 
 #[derive(Args, Clone, Debug)]
@@ -65,6 +75,7 @@ struct ShouldReprocessArgs {
 
 #[derive(Subcommand, Debug, Clone)]
 enum Commands {
+    Delete(DeleteArgs),
     Get(GetArgs),
     Set(SetArgs),
     ShouldReprocess(ShouldReprocessArgs)
@@ -116,6 +127,11 @@ fn load_metadata(filepath: &PathBuf) -> Result<DatasetsMetadata> {
     Ok(empty)
 }
 
+fn cmd_delete(meta: &mut DatasetsMetadata, args: DeleteArgs) {
+    meta.downloaded.remove(&args.key);
+    meta.processed.remove(&args.key);
+}
+
 fn cmd_get(meta: &DatasetsMetadata, args: GetArgs) -> Option<&String> {
     match args.stage {
         ProcessingStage::Downloaded => meta.downloaded.get(&args.key),
@@ -123,7 +139,7 @@ fn cmd_get(meta: &DatasetsMetadata, args: GetArgs) -> Option<&String> {
     }
 }
 
-fn cmd_set(mut meta: DatasetsMetadata, args: SetArgs) -> DatasetsMetadata {
+fn cmd_set(meta: &mut DatasetsMetadata, args: SetArgs) {
     match args.stage {
         ProcessingStage::Downloaded => {
             meta.downloaded.insert(args.key, args.value);
@@ -132,8 +148,6 @@ fn cmd_set(mut meta: DatasetsMetadata, args: SetArgs) -> DatasetsMetadata {
             meta.processed.insert(args.key, args.value);
         }
     }
-
-    meta
 }
 
 fn cmd_should_reprocess(meta: DatasetsMetadata, args: ShouldReprocessArgs) -> bool {
