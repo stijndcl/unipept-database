@@ -17,6 +17,7 @@ TAXA="1"
 VERBOSE="false"
 SORT_MEMORY="2g"
 
+OLD_INDEX_DIR="$INDEX_DIR"
 OLD_TMPDIR="$TMPDIR"
 
 printHelp() {
@@ -84,6 +85,7 @@ END
 clean() {
 	# Clean contents of temporary directory
 	rm -rf "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT"
+	export INDEX_DIR="$OLD_INDEX_DIR"
 	export TMPDIR="$OLD_TMPDIR"
 }
 
@@ -225,6 +227,9 @@ then
 	printUnknownOptionAndExit
 fi
 
+# This helps the datasets tool use the right index directory without having to pass it every time
+export INDEX_DIR="$INDEX_DIR"
+
 # This is required for the sort command to use the correct temp directory
 export TMPDIR="$TEMP_DIR"
 
@@ -332,8 +337,8 @@ have() {
 download_file() {
   URL="$1"
   DESTINATION="$2"
-
-  curl --continue-at - --create-dirs "$URL" --silent -o "$DESTINATION"
+  echo "Downloading $(basename "$DESTINATION")"
+  curl -L --continue-at - --create-dirs "$URL" --silent -o "$DESTINATION"
 }
 
 ### All the different database construction steps.
@@ -396,7 +401,7 @@ download_uniprot_datasets() {
       reportProgress -1 "Downloading database index for $DB_TYPE." 3
       download_file "$DB_SOURCE" "$DATASET_DIR/$DB_TYPE.gz"
     else
-      CURRENT_ETAG=$(curl --head --silent "$DB_SOURCE" | grep "ETag" | cut -d " " -f2 | tr -d "\"")
+      CURRENT_ETAG=$(curl --head --silent "$DB_SOURCE" | grep "ETag" | cut -d " " -f2 | tr -d "\"" | tr -d "\r")
       STORED_ETAG="$($CURRENT_LOCATION/helper_scripts/datasets get downloaded "$DB_TYPE" )"
 
       if [[ -n "$CURRENT_ETAG" ]] && [[ "$CURRENT_ETAG" == "$STORED_ETAG" ]]
@@ -406,14 +411,16 @@ download_uniprot_datasets() {
         echo "Dataset for $DB_TYPE must be downloaded."
 
         $CURRENT_LOCATION/helper_scripts/datasets delete downloaded "$DB_TYPE"
+	      $CURRENT_LOCATION/helper_scripts/datasets delete processed "$DB_TYPE"
+
         rm -f "$DATASET_DIR/$DB_TYPE.gz"
         reportProgress 0 "Downloading dataset for $DB_TYPE." 2
         SIZE="$(curl -I "$DB_SOURCE" -s | grep -i content-length | tr -cd '[0-9]')"
 
         # Download dataset
-        curl --create-dirs "$DB_SOURCE" --silent | pv -i 5 -n -s "$SIZE" 2> >(reportProgress - "Downloading database index for $DB_TYPE." 3 >&2) > "$DATASET_DIR/$DB_TYPE.gz"
+        curl -L --create-dirs "$DB_SOURCE" --silent | pv -i 5 -n -s "$SIZE" 2> >(reportProgress - "Downloading database index for $DB_TYPE." 3 >&2) > "$DATASET_DIR/$DB_TYPE.gz"
 
-        # After download is complete, store E-Tag if there is one
+        # After download is complete, store ETag if there is one
         if [[ -n "$CURRENT_ETAG" ]]
         then
           $CURRENT_LOCATION/helper_scripts/datasets set downloaded "$DB_TYPE" "$CURRENT_ETAG"
@@ -554,7 +561,7 @@ convert_all_sources() {
         CHUNK_IDX=$((CHUNK_IDX + 1))
       done
 
-      $CURRENT_LOCATION/helper_scripts/datasets set downloaded "$DB_TYPE" "$CURRENT_ETAG"
+      $CURRENT_LOCATION/helper_scripts/datasets set processed "$DB_TYPE" "$CURRENT_ETAG"
       rm "$INDEX_DIR/datasets/$DB_TYPE.gz"
 
       echo "Index for $DB_TYPE has been produced."

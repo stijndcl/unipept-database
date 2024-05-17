@@ -46,12 +46,13 @@ struct Cli {
     #[command(subcommand)]
     cmd: Commands,
 
-    #[clap(long, env = "INDEX_DIR")]
+    #[clap(short, long, env = "INDEX_DIR")]
     index_dir: PathBuf,
 }
 
 #[derive(Args, Clone, Debug)]
 struct DeleteArgs {
+    stage: ProcessingStage,
     db_type: String,
 }
 
@@ -129,8 +130,10 @@ fn load_metadata(filepath: &PathBuf) -> Result<DatasetsMetadata> {
 }
 
 fn cmd_delete(meta: &mut DatasetsMetadata, args: DeleteArgs) {
-    meta.downloaded.remove(&args.db_type);
-    meta.processed.remove(&args.db_type);
+    match args.stage {
+        ProcessingStage::Downloaded => { meta.downloaded.remove(&args.db_type); }
+        ProcessingStage::Processed => { meta.processed.remove(&args.db_type); }
+    }
 }
 
 fn cmd_get(meta: &DatasetsMetadata, args: GetArgs) -> Option<&String> {
