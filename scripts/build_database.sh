@@ -166,7 +166,7 @@ checkdep() {
     }
 }
 
-log() { echo "$(date +'[%s (%F %T)]')" "$@"; }
+log() { echo "$(date +'[%s.%3N (%F %T)]')" "$@"; }
 
 trap terminateAndExit SIGINT
 trap errorAndExit ERR
@@ -259,6 +259,7 @@ TABDIR="$OUTPUT_DIR" # Where should I store the final TSV files (large, single-w
 INTDIR="$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT" # Where should I store intermediate TSV files (large, single-write, multiple-read?
 KMER_LENGTH=9 # What is the length (k) of the K-mer peptides?
 CMD_SORT="sort --buffer-size=$SORT_MEMORY --parallel=4" # Which sort command should I use?
+CMD_TSORT="/home/stijndcl/Documents/ugent/extRSort/target/release/sorter --buffer-size=2000000000 --parallel=4"
 CMD_GZIP="pigz -" # Which pipe compression command should I use for .gz files?
 CMD_LZ4="lz4 -c" # Which pipe compression command should I use for .lz4 files?
 CMD_LZ4CAT="lz4 -dc" # Which decompression command should I use for .lz4 files?
@@ -445,7 +446,7 @@ download_and_convert_all_sources() {
 
       reportProgress -1 "Downloading database index for $DB_TYPE." 3
 
-      curl --continue-at - --create-dirs "$DB_SOURCE" --silent | pigz -dc | $CURRENT_LOCATION/helper_scripts/$PARSER -t "$DB_TYPE" | $CURRENT_LOCATION/helper_scripts/write-to-chunk --output-dir "$DB_INDEX_OUTPUT"
+      pigz -dc /home/stijndcl/Documents/ugent/thesis/files/uniprot_sprot.dat.gz | $CURRENT_LOCATION/helper_scripts/$PARSER -t "$DB_TYPE" | $CURRENT_LOCATION/helper_scripts/write-to-chunk --output-dir "$DB_INDEX_OUTPUT"
 
       # Now, compress the different chunks
       CHUNKS=$(find "$DB_INDEX_OUTPUT" -name "*.chunk")
@@ -489,7 +490,7 @@ download_and_convert_all_sources() {
 
         SIZE="$(curl -I "$DB_SOURCE" -s | grep -i content-length | tr -cd '[0-9]')"
 
-        curl --continue-at - --create-dirs "$DB_SOURCE" --silent | pv -i 5 -n -s "$SIZE" 2> >(reportProgress - "Downloading database index for $DB_TYPE." 3 >&2) | pigz -dc | $CURRENT_LOCATION/helper_scripts/$PARSER -t "$DB_TYPE" | $CURRENT_LOCATION/helper_scripts/write-to-chunk --output-dir "$DB_INDEX_OUTPUT"
+        pigz -dc /home/stijndcl/Documents/ugent/thesis/files/uniprot_sprot.dat.gz | $CURRENT_LOCATION/helper_scripts/$PARSER -t "$DB_TYPE" | $CURRENT_LOCATION/helper_scripts/write-to-chunk --output-dir "$DB_INDEX_OUTPUT"
 
         # Now, compress the different chunks
         CHUNKS=$(find "$DB_INDEX_OUTPUT" -name "*.chunk")
@@ -569,7 +570,7 @@ create_most_tables() {
   log "Started sorting peptides table"
 
   $CMD_LZ4CAT "$INTDIR/peptides-out.tsv.lz4" \
-    | LC_ALL=C $CMD_SORT -k2 \
+    | $CMD_TSORT -f 2 \
     | $CMD_LZ4 > "$INTDIR/peptides-equalized.tsv.lz4"
 
   rm "$INTDIR/peptides-out.tsv.lz4"
@@ -588,7 +589,7 @@ number_sequences() {
 	mkfifo "p_eq"
 	mkfifo "p_or"
 
-	$CMD_LZ4CAT "$INTDIR/peptides-equalized.tsv.lz4" | cut -f 3 | sort | uniq > "p_or" &
+	$CMD_LZ4CAT "$INTDIR/peptides-equalized.tsv.lz4" | cut -f 3 | $CMD_TSORT | uniq > "p_or" &
 	$CMD_LZ4CAT "$INTDIR/peptides-equalized.tsv.lz4" | cut -f 2 | uniq > "p_eq" &
 
 	sort -u -m "p_or" "p_eq" | cat -n \
@@ -612,7 +613,7 @@ substitute_aas() {
 
   log "Started the substitution of original AA's by ID's for the peptides."
   $CMD_LZ4CAT "$INTDIR/peptides_by_equalized.tsv.lz4" \
-    | LC_ALL=C $CMD_SORT -k 3b,3 \
+    | $CMD_TSORT -f 3 \
     | join -t '	' -o '1.1,1.2,2.1,1.4,1.5,1.6' -1 3 -2 2 - "$(luz "$INTDIR/sequences.tsv.lz4")" \
     | $CMD_LZ4 - > "$INTDIR/peptides_by_original.tsv.lz4"
 
@@ -756,7 +757,7 @@ create_kmer_index() {
 			| grep "^[0-9]*	[ACDEFGHIKLMNPQRSTVWY]*$" \
 			| umgap splitkmers -k"$KMER_LENGTH" \
 			| sed -n "s/^$PREFIX//p" \
-			| LC_ALL=C $CMD_SORT \
+			| $CMD_TSORT \
 			| sed "s/^/$PREFIX/"
 	done \
 			| umgap joinkmers "$(luz "$OUTPUT_DIR/taxons.tsv.lz4")" \

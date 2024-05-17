@@ -20,7 +20,7 @@ function load_table() {
     else
         lz4cat $file
     fi
-    } | PGPASSWORD=$DB_PASSWORD psql -U $DB_USER -c "COPY $DB_NAME.$tbl FROM STDIN WITH (FORMAT TEXT, DELIMITER E'\t', HEADER false, NULL '\N');" 2>&1
+    } | docker exec -i thesis-psql psql -c "COPY $DB_NAME.$tbl FROM STDIN WITH (FORMAT TEXT, DELIMITER E'\t', HEADER false, NULL '\N');" 2>&1
 }
 
 export -f load_table

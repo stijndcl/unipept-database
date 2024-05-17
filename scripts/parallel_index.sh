@@ -11,7 +11,7 @@ add_index() {
     local column_name=$2
 
     # Execute the "add index" statement
-    PGPASSWORD="$DB_PASSWORD" psql -U "$DB_USER" -c "CREATE INDEX idx_${table_name}_$column_name ON $DB_NAME.$table_name($column_name);" &
+    docker exec -i thesis-psql psql -c "CREATE INDEX idx_${table_name}_$column_name ON $DB_NAME.$table_name($column_name);" &
 }
 
 # List of tables and columns for which you want to add indexes
