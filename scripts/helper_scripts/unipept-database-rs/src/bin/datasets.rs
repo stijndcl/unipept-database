@@ -52,25 +52,26 @@ struct Cli {
 
 #[derive(Args, Clone, Debug)]
 struct DeleteArgs {
-    key: String
+    db_type: String,
 }
 
 #[derive(Args, Clone, Debug)]
 struct GetArgs {
     stage: ProcessingStage,
-    key: String
+    db_type: String,
 }
 
 #[derive(Args, Clone, Debug)]
 struct SetArgs {
     stage: ProcessingStage,
-    key: String,
-    value: String
+    db_type: String,
+    value: String,
 }
 
 #[derive(Args, Clone, Debug)]
 struct ShouldReprocessArgs {
-    key: String,
+    db_type: String,
+    db_source: String
 }
 
 #[derive(Subcommand, Debug, Clone)]
@@ -78,13 +79,13 @@ enum Commands {
     Delete(DeleteArgs),
     Get(GetArgs),
     Set(SetArgs),
-    ShouldReprocess(ShouldReprocessArgs)
+    ShouldReprocess(ShouldReprocessArgs),
 }
 
 #[derive(ValueEnum, Debug, Clone)]
 enum ProcessingStage {
     Downloaded,
-    Processed
+    Processed,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -97,8 +98,8 @@ impl DatasetsMetadata {
     fn new() -> Self {
         return DatasetsMetadata {
             downloaded: HashMap::new(),
-            processed: HashMap::new()
-        }
+            processed: HashMap::new(),
+        };
     }
 
     /// Write the contents of the metadata struct to a file.
@@ -116,7 +117,7 @@ fn load_metadata(filepath: &PathBuf) -> Result<DatasetsMetadata> {
         let contents = fs::read_to_string(filepath).context("Error reading metadata file")?;
         let deserialized = serde_json::from_str(contents.as_str()).context("Error deserializing file contents")?;
 
-        return Ok(deserialized)
+        return Ok(deserialized);
     }
 
     // File doesn't exist yet, create it first and then return an empty struct
@@ -128,44 +129,44 @@ fn load_metadata(filepath: &PathBuf) -> Result<DatasetsMetadata> {
 }
 
 fn cmd_delete(meta: &mut DatasetsMetadata, args: DeleteArgs) {
-    meta.downloaded.remove(&args.key);
-    meta.processed.remove(&args.key);
+    meta.downloaded.remove(&args.db_type);
+    meta.processed.remove(&args.db_type);
 }
 
 fn cmd_get(meta: &DatasetsMetadata, args: GetArgs) -> Option<&String> {
     match args.stage {
-        ProcessingStage::Downloaded => meta.downloaded.get(&args.key),
-        ProcessingStage::Processed => meta.processed.get(&args.key)
+        ProcessingStage::Downloaded => meta.downloaded.get(&args.db_type),
+        ProcessingStage::Processed => meta.processed.get(&args.db_type)
     }
 }
 
 fn cmd_set(meta: &mut DatasetsMetadata, args: SetArgs) {
     match args.stage {
         ProcessingStage::Downloaded => {
-            meta.downloaded.insert(args.key, args.value);
+            meta.downloaded.insert(args.db_type, args.value);
         }
         ProcessingStage::Processed => {
-            meta.processed.insert(args.key, args.value);
+            meta.processed.insert(args.db_type, args.value);
         }
     }
 }
 
 fn cmd_should_reprocess(meta: DatasetsMetadata, args: ShouldReprocessArgs) -> bool {
     // The REST-API does not provide E-Tags, so these should always be re-processed
-    if args.key.contains("rest") {
+    if args.db_source.contains("rest") {
         return true;
     }
 
     // If we have not downloaded this yet, process
     // In practice this is not possible, it should have been downloaded a few steps before
-    let downloaded = meta.downloaded.get(&args.key);
+    let downloaded = meta.downloaded.get(&args.db_type);
     let downloaded = match downloaded {
         None => { return true; }
         Some(d) => { d }
     };
 
     // If we have not processed this yet, process
-    let processed = meta.processed.get(&args.key);
+    let processed = meta.processed.get(&args.db_type);
     let processed = match processed {
         None => { return true; }
         Some(p) => { p }
