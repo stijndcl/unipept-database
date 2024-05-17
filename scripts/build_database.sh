@@ -377,9 +377,6 @@ download_interpro_entries() {
 }
 
 download_uniprot_datasets() {
-  DATASET_DIR="$INDEX_DIR/datasets"
-  mkdir -p "$DATASET_DIR"
-
   IDX=0
 
   OLDIFS="$IFS"
@@ -396,10 +393,10 @@ download_uniprot_datasets() {
     # If we are using the REST-API, always re-build the database
     if [[ $DB_SOURCE =~ "rest" ]]
     then
-      rm -f "$DATASET_DIR/$DB_TYPE.gz"
+      rm -f "$INDEX_DIR/$DB_TYPE.gz"
 
       reportProgress -1 "Downloading database index for $DB_TYPE." 3
-      download_file "$DB_SOURCE" "$DATASET_DIR/$DB_TYPE.gz"
+      download_file "$DB_SOURCE" "$INDEX_DIR/$DB_TYPE.gz"
     else
       CURRENT_ETAG=$(curl --head --silent "$DB_SOURCE" | grep "ETag" | cut -d " " -f2 | tr -d "\"" | tr -d "\r")
       STORED_ETAG="$($CURRENT_LOCATION/helper_scripts/datasets get downloaded "$DB_TYPE" )"
@@ -413,12 +410,12 @@ download_uniprot_datasets() {
         $CURRENT_LOCATION/helper_scripts/datasets delete downloaded "$DB_TYPE"
 	      $CURRENT_LOCATION/helper_scripts/datasets delete processed "$DB_TYPE"
 
-        rm -f "$DATASET_DIR/$DB_TYPE.gz"
+        rm -f "$INDEX_DIR/$DB_TYPE.gz"
         reportProgress 0 "Downloading dataset for $DB_TYPE." 2
         SIZE="$(curl -I "$DB_SOURCE" -s | grep -i content-length | tr -cd '[0-9]')"
 
         # Download dataset
-        curl -L --create-dirs "$DB_SOURCE" --silent | pv -i 5 -n -s "$SIZE" 2> >(reportProgress - "Downloading database index for $DB_TYPE." 3 >&2) > "$DATASET_DIR/$DB_TYPE.gz"
+        curl -L --create-dirs "$DB_SOURCE" --silent | pv -i 5 -n -s "$SIZE" 2> >(reportProgress - "Downloading database index for $DB_TYPE." 3 >&2) > "$INDEX_DIR/$DB_TYPE.gz"
 
         # After download is complete, store ETag if there is one
         if [[ -n "$CURRENT_ETAG" ]]
@@ -507,7 +504,7 @@ convert_all_sources() {
     echo "Producing index for $DB_TYPE."
 
     # Where should we store the index of this converted database.
-    DATASET="$INDEX_DIR/datasets/$DB_TYPE.gz"
+    DATASET="$INDEX_DIR/$DB_TYPE.gz"
     DB_INDEX_OUTPUT="$INDEX_DIR/$DB_TYPE"
 
     echo "$DB_INDEX_OUTPUT"
@@ -544,7 +541,7 @@ convert_all_sources() {
 
       SIZE="$(curl -I "$DB_SOURCE" -s | grep -i content-length | tr -cd '[0-9]')"
 
-      pigz -dc "$INDEX_DIR/datasets/$DB_TYPE.gz" | $CURRENT_LOCATION/helper_scripts/$PARSER -t "$DB_TYPE" | $CURRENT_LOCATION/helper_scripts/write-to-chunk --output-dir "$DB_INDEX_OUTPUT"
+      pigz -dc "$INDEX_DIR/$DB_TYPE.gz" | $CURRENT_LOCATION/helper_scripts/$PARSER -t "$DB_TYPE" | $CURRENT_LOCATION/helper_scripts/write-to-chunk --output-dir "$DB_INDEX_OUTPUT"
 
       # Now, compress the different chunks
       CHUNKS=$(find "$DB_INDEX_OUTPUT" -name "*.chunk")
@@ -562,7 +559,7 @@ convert_all_sources() {
       done
 
       $CURRENT_LOCATION/helper_scripts/datasets set processed "$DB_TYPE" "$CURRENT_ETAG"
-      rm "$INDEX_DIR/datasets/$DB_TYPE.gz"
+      rm "$INDEX_DIR/$DB_TYPE.gz"
 
       echo "Index for $DB_TYPE has been produced."
     fi
