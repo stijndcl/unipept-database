@@ -329,6 +329,13 @@ have() {
 	fi
 }
 
+download_file() {
+  URL="$1"
+  DESTINATION="$2"
+
+  curl --continue-at - --create-dirs "$URL" --silent -o "$DESTINATION"
+}
+
 ### All the different database construction steps.
 
 download_taxdmp() {
@@ -348,24 +355,75 @@ download_taxdmp() {
     TAXON_URL="$TAXON_FALLBACK_URL"
   fi
 
-  wget -q -O "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/taxdmp.zip" "$TAXON_URL"
+  download_file "$TAXON_URL" "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/taxdmp.zip"
 }
 
 download_ec_numbers() {
-  wget -q -O "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/enzclass.txt" "$EC_CLASS_URL"
-  wget -q -O "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/enzyme.dat" "$EC_NUMBER_URL"
+  download_file "$EC_CLASS_URL" "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/enzclass.txt"
+  download_file "$EC_NUMBER_URL" "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/enzyme.dat"
 }
 
 download_go_terms() {
-  wget -q -O "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/go-basic.obo" "$GO_TERM_URL"
+  download_file "$GO_TERM_URL" "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/go-basic.obo"
 }
 
 download_interpro_entries() {
-  wget -q -O "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/entry.list" "$INTERPRO_URL"
+  download_file "$INTERPRO_URL" "$TEMP_DIR/$UNIPEPT_TEMP_CONSTANT/entry.list"
 }
 
 download_uniprot_datasets() {
+  DATASET_DIR="$INDEX_DIR/datasets"
+  mkdir -p "$DATASET_DIR"
 
+  IDX=0
+
+  OLDIFS="$IFS"
+  IFS=","
+
+  DB_TYPES_ARRAY=($DB_TYPES)
+  DB_SOURCES_ARRAY=($DB_SOURCES)
+
+  while [[ "$IDX" -ne "${#DB_TYPES_ARRAY}" ]] && [[ -n $(echo "${DB_TYPES_ARRAY[$IDX]}" | sed "s/\s//g") ]]
+  do
+    DB_TYPE=${DB_TYPES_ARRAY[$IDX]}
+    DB_SOURCE=${DB_SOURCES_ARRAY[$IDX]}
+
+    # If we are using the REST-API, always re-build the database
+    if [[ $DB_SOURCE =~ "rest" ]]
+    then
+      rm -f "$DATASET_DIR/$DB_TYPE.gz"
+
+      reportProgress -1 "Downloading database index for $DB_TYPE." 3
+      download_file "$DB_SOURCE" "$DATASET_DIR/$DB_TYPE.gz"
+    else
+      CURRENT_ETAG=$(curl --head --silent "$DB_SOURCE" | grep "ETag" | cut -d " " -f2 | tr -d "\"")
+      STORED_ETAG="$($CURRENT_LOCATION/helper_scripts/datasets get downloaded "$DB_TYPE" )"
+
+      if [[ -n "$CURRENT_ETAG" ]] && [[ "$CURRENT_ETAG" == "$STORED_ETAG" ]]
+      then
+        echo "Dataset for $DB_TYPE is already present and can be reused."
+      else
+        echo "Dataset for $DB_TYPE must be downloaded."
+
+        $CURRENT_LOCATION/helper_scripts/datasets delete downloaded "$DB_TYPE"
+        rm -f "$DATASET_DIR/$DB_TYPE.gz"
+        reportProgress 0 "Downloading dataset for $DB_TYPE." 2
+        SIZE="$(curl -I "$DB_SOURCE" -s | grep -i content-length | tr -cd '[0-9]')"
+
+        # Download dataset
+        curl --create-dirs "$DB_SOURCE" --silent | pv -i 5 -n -s "$SIZE" 2> >(reportProgress - "Downloading database index for $DB_TYPE." 3 >&2) > "$DATASET_DIR/$DB_TYPE.gz"
+
+        # After download is complete, store E-Tag if there is one
+        if [[ -n "$CURRENT_ETAG" ]]
+        then
+          $CURRENT_LOCATION/helper_scripts/datasets set downloaded "$DB_TYPE" "$CURRENT_ETAG"
+        fi
+      fi
+    fi
+
+    IDX=$((IDX + 1))
+  done
+  IFS="$OLDIFS"
 }
 
 download_all_sources() {
@@ -442,6 +500,7 @@ convert_all_sources() {
     echo "Producing index for $DB_TYPE."
 
     # Where should we store the index of this converted database.
+    DATASET="$INDEX_DIR/datasets/$DB_TYPE.gz"
     DB_INDEX_OUTPUT="$INDEX_DIR/$DB_TYPE"
 
     echo "$DB_INDEX_OUTPUT"
@@ -459,19 +518,26 @@ convert_all_sources() {
       errorAndExit "No known parser available for provided UniProtKB file format. Only XML and DAT are available."
     fi
 
-    # No ETags or other header requests are available if a database is requested from the UniProt REST API. That's why
-    # we always need to reprocess the database in that case.
-    if [[ $DB_SOURCE =~ "rest" ]]
+    # Check for this database if the database index is already present
+    DOWNLOADED_ETAG="$($CURRENT_LOCATION/helper_scripts/datasets get downloaded "$DB_TYPE" )"
+    PROCESSED_ETAG="$($CURRENT_LOCATION/helper_scripts/datasets get processed "$DB_TYPE" )"
+
+    if [[ -n "$PROCESSED_ETAG" ]] && [[ "$DOWNLOADED_ETAG" == "$PROCESSED_ETAG" ]]
     then
-      echo "Index for $DB_TYPE is requested over UniProt REST API and needs to be recreated."
+      echo "Index for $DB_TYPE is already present and can be reused."
+    else
+      echo "Index for $DB_TYPE is not yet present and needs to be created."
 
       # Remove old database version and continue building the new database.
+      $CURRENT_LOCATION/helper_scripts/datasets delete processed "$DB_TYPE"
       rm -rf "$DB_INDEX_OUTPUT"
       mkdir -p "$DB_INDEX_OUTPUT"
 
-      reportProgress -1 "Downloading database index for $DB_TYPE." 3
+      reportProgress 0 "Building database index for $DB_TYPE." 2
 
-      curl --continue-at - --create-dirs "$DB_SOURCE" --silent | pigz -dc | $CURRENT_LOCATION/helper_scripts/$PARSER -t "$DB_TYPE" | $CURRENT_LOCATION/helper_scripts/write-to-chunk --output-dir "$DB_INDEX_OUTPUT"
+      SIZE="$(curl -I "$DB_SOURCE" -s | grep -i content-length | tr -cd '[0-9]')"
+
+      pigz -dc "$INDEX_DIR/datasets/$DB_TYPE.gz" | $CURRENT_LOCATION/helper_scripts/$PARSER -t "$DB_TYPE" | $CURRENT_LOCATION/helper_scripts/write-to-chunk --output-dir "$DB_INDEX_OUTPUT"
 
       # Now, compress the different chunks
       CHUNKS=$(find "$DB_INDEX_OUTPUT" -name "*.chunk")
@@ -488,54 +554,10 @@ convert_all_sources() {
         CHUNK_IDX=$((CHUNK_IDX + 1))
       done
 
+      $CURRENT_LOCATION/helper_scripts/datasets set downloaded "$DB_TYPE" "$CURRENT_ETAG"
+      rm "$INDEX_DIR/datasets/$DB_TYPE.gz"
+
       echo "Index for $DB_TYPE has been produced."
-    else
-
-      # Check for this database if the database index is already present
-      CURRENT_ETAG=$(curl --head --silent "$DB_SOURCE" | grep "ETag" | cut -d " " -f2 | tr -d "\"")
-
-      if [[ ! -e "$DB_INDEX_OUTPUT/metadata" ]]
-      then
-        touch "$DB_INDEX_OUTPUT/metadata"
-      fi
-
-      PREVIOUS_ETAG=$([[ -r "$DB_INDEX_OUTPUT/metadata" ]] && cat "$DB_INDEX_OUTPUT/metadata" 2> /dev/null)
-
-      if [[ -n "$CURRENT_ETAG" ]] && [[ "$CURRENT_ETAG" == "$PREVIOUS_ETAG" ]]
-      then
-        echo "Index for $DB_TYPE is already present and can be reused."
-      else
-        echo "Index for $DB_TYPE is not yet present and needs to be created."
-        # Remove old database version and continue building the new database.
-        rm -rf "$DB_INDEX_OUTPUT"
-        mkdir -p "$DB_INDEX_OUTPUT"
-        touch "$DB_INDEX_OUTPUT/metadata"
-
-        reportProgress 0 "Building database index for $DB_TYPE." 2
-
-        SIZE="$(curl -I "$DB_SOURCE" -s | grep -i content-length | tr -cd '[0-9]')"
-
-        curl --continue-at - --create-dirs "$DB_SOURCE" --silent | pv -i 5 -n -s "$SIZE" 2> >(reportProgress - "Downloading database index for $DB_TYPE." 3 >&2) | pigz -dc | $CURRENT_LOCATION/helper_scripts/$PARSER -t "$DB_TYPE" | $CURRENT_LOCATION/helper_scripts/write-to-chunk --output-dir "$DB_INDEX_OUTPUT"
-
-        # Now, compress the different chunks
-        CHUNKS=$(find "$DB_INDEX_OUTPUT" -name "*.chunk")
-        TOTAL_CHUNKS=$(echo "$CHUNKS" | wc -l)
-
-        CHUNK_IDX=1
-
-        for CHUNK in $CHUNKS
-        do
-          echo "Compressing $CHUNK_IDX of $TOTAL_CHUNKS for $DB_TYPE"
-          pv -i 5 -n "$CHUNK" 2> >(reportProgress - "Processing chunk $CHUNK_IDX of $TOTAL_CHUNKS for $DB_TYPE index." 4 >&2) | lz4 -c > "$CHUNK.lz4"
-          # Remove the chunk that was just compressed
-          rm "$CHUNK"
-          CHUNK_IDX=$((CHUNK_IDX + 1))
-        done
-
-        echo "$CURRENT_ETAG" > "$DB_INDEX_OUTPUT/metadata"
-
-        echo "Index for $DB_TYPE has been produced."
-      fi
     fi
 
     IDX=$((IDX + 1))

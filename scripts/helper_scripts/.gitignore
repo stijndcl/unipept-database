@@ -1,5 +1,6 @@
 # Ignore the compiled binaries that get moved here
 dat-parser
+datasets
 functional-analysis
 lcas
 substitute-aas
