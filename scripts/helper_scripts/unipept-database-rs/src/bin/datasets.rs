@@ -19,7 +19,7 @@ fn main() -> Result<()> {
     match cli.cmd {
         Commands::Delete(args) => {
             cmd_delete(&mut meta, args);
-            meta.write(filepath).context("Error deleting E-Tag")?;
+            meta.write(filepath).context("Error deleting ETag")?;
         }
         Commands::Get(args) => {
             let etag = cmd_get(&meta, args);
@@ -30,10 +30,10 @@ fn main() -> Result<()> {
         }
         Commands::Set(args) => {
             cmd_set(&mut meta, args);
-            meta.write(filepath).context("Error storing E-Tag")?;
+            meta.write(filepath).context("Error storing ETag")?;
         }
         Commands::ShouldReprocess(args) => {
-            let reprocess = cmd_should_reprocess(meta, args);
+            let reprocess = cmd_should_reprocess(&mut meta, filepath, cli.index_dir, args).context("Error checking metadata consistency")?;
             println!("{}", reprocess);
         }
     }
@@ -72,7 +72,7 @@ struct SetArgs {
 #[derive(Args, Clone, Debug)]
 struct ShouldReprocessArgs {
     db_type: String,
-    db_source: String
+    db_source: String,
 }
 
 #[derive(Subcommand, Debug, Clone)]
@@ -154,27 +154,38 @@ fn cmd_set(meta: &mut DatasetsMetadata, args: SetArgs) {
     }
 }
 
-fn cmd_should_reprocess(meta: DatasetsMetadata, args: ShouldReprocessArgs) -> bool {
-    // The REST-API does not provide E-Tags, so these should always be re-processed
+fn cmd_should_reprocess(meta: &mut DatasetsMetadata, filepath: PathBuf, index_dir: PathBuf, args: ShouldReprocessArgs) -> Result<bool> {
+    // The REST-API does not provide ETags, so these should always be re-processed
     if args.db_source.contains("rest") {
-        return true;
+        return Ok(true);
+    }
+
+    // Check if the index directory exists and is not empty
+    // If not, then the directory was cleared manually, and the metadata file is out of date
+    // so it must be updated
+    let dir = index_dir.join(format!("{}/", args.db_type));
+    if !dir.exists() || dir.read_dir().with_context(|| format!("Error checking contents of {} directory", args.db_type))?.next().is_none() {
+        meta.processed.remove(&args.db_type);
+        meta.write(filepath).context("Error deleting ETag")?;
+
+        return Ok(true);
     }
 
     // If we have not downloaded this yet, process
     // In practice this is not possible, it should have been downloaded a few steps before
     let downloaded = meta.downloaded.get(&args.db_type);
     let downloaded = match downloaded {
-        None => { return true; }
+        None => { return Ok(true); }
         Some(d) => { d }
     };
 
     // If we have not processed this yet, process
     let processed = meta.processed.get(&args.db_type);
     let processed = match processed {
-        None => { return true; }
+        None => { return Ok(true); }
         Some(p) => { p }
     };
 
     // Re-process if the downloaded and processed one don't match
-    return downloaded != processed;
+    return Ok(downloaded != processed);
 }
